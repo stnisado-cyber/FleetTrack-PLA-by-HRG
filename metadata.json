@@ -1,0 +1,7 @@
+{
+  "name": "FleetTrack PLA by HRGA",
+  "description": "A comprehensive office car usage monitoring system for HRGA professionals, featuring form submissions, fleet tracking, and AI-powered usage analysis.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
