@@ -61,22 +61,22 @@ export default function FormPage({ cars, networkId, isSyncing, networkError, onS
 
   return (
     <div className="max-w-xl mx-auto p-6 md:p-12 animate-in fade-in duration-700">
-      {/* HEADER STATUS */}
       <div className="mb-10 flex flex-col items-center text-center">
         <div className="w-16 h-16 bg-fuchsia-600 rounded-2xl flex items-center justify-center text-white mb-6 shadow-xl shadow-fuchsia-500/20">
            <Icons.Car />
         </div>
         
-        {/* Connection Status Badge */}
-        <div className={`mb-4 flex items-center gap-3 px-5 py-2 rounded-full border-2 transition-all ${networkError ? 'bg-red-50 border-red-200' : 'bg-slate-900 border-slate-800'}`}>
-          <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-fuchsia-500 animate-pulse' : (networkError ? 'bg-red-500' : 'bg-green-500')}`}></div>
-          <span className={`text-[9px] font-black uppercase tracking-widest ${networkError ? 'text-red-600' : 'text-white'}`}>
-            {networkError ? 'Koneksi Error' : (isSyncing ? 'Sinkronisasi...' : `KANTOR: ${networkId}`)}
+        <div className={`mb-4 flex items-center gap-3 px-5 py-2 rounded-full border-2 transition-all ${networkError ? 'bg-amber-50 border-amber-200' : 'bg-slate-900 border-slate-800'}`}>
+          <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-fuchsia-500 animate-pulse' : (networkError ? 'bg-amber-500' : 'bg-green-500')}`}></div>
+          <span className={`text-[9px] font-black uppercase tracking-widest ${networkError ? 'text-amber-700' : 'text-white'}`}>
+            {networkError ? 'Menghubungkan ke Cloud...' : (isSyncing ? 'Sinkronisasi...' : `KODE: ${networkId}`)}
           </span>
         </div>
 
         <h1 className="text-2xl font-black text-slate-950 uppercase tracking-tight">Form Ambil Mobil</h1>
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mt-2">Isi data permohonan Anda di bawah ini</p>
+        {networkError && (
+          <p className="text-[9px] font-bold text-amber-600 uppercase mt-2">Server sedang sibuk. Silakan tetap isi form, kami akan mencoba kirim ulang.</p>
+        )}
       </div>
 
       {submitted && (
@@ -91,15 +91,12 @@ export default function FormPage({ cars, networkId, isSyncing, networkError, onS
         </div>
       )}
 
-      {networkError && !submitted && (
-        <div className="mb-8 p-4 bg-red-100 border-2 border-red-200 text-red-700 rounded-2xl text-[10px] font-black uppercase text-center tracking-widest animate-bounce">
-          ⚠️ HP Anda Tidak Terkoneksi. Cek Sinyal/Paket Data.
-        </div>
-      )}
-
       {!formData.carId ? (
         <div className="space-y-4">
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center mb-6">Pilih Unit Yang Tersedia</p>
+          <div className="flex justify-between items-center mb-6">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pilih Unit Tersedia</p>
+            <button onClick={() => window.location.reload()} className="text-[9px] font-black text-fuchsia-600 uppercase bg-fuchsia-50 px-3 py-1 rounded-lg">Refresh Data</button>
+          </div>
           <div className="grid grid-cols-1 gap-4">
             {cars.map((car) => {
               const isAvailable = car.status === 'available';
