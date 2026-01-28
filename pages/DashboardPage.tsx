@@ -8,10 +8,11 @@ interface Props {
   onComplete: (id: string, endData: { endOdo: number, endFuel: FuelLevel, endCondition: VehicleCondition, arrivalTime: string }) => void;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
+  onRefresh: () => void;
   onToggleMaintenance: (carId: string) => void;
 }
 
-export default function DashboardPage({ cars, logs, onComplete, onApprove, onReject, onToggleMaintenance }: Props) {
+export default function DashboardPage({ cars, logs, onComplete, onApprove, onReject, onRefresh, onToggleMaintenance }: Props) {
   const pendingLogs = logs.filter(l => l.status === 'pending');
   const activeLogs = logs.filter(l => l.status === 'active');
   const [completeDialog, setCompleteDialog] = useState<string | null>(null);
@@ -41,6 +42,10 @@ export default function DashboardPage({ cars, logs, onComplete, onApprove, onRej
           </div>
           <h1 className="text-3xl font-black text-slate-950 uppercase tracking-tight">Monitoring & Approval</h1>
         </div>
+        <button onClick={onRefresh} className="px-6 py-4 bg-slate-950 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-3 hover:bg-fuchsia-600 transition-all shadow-xl">
+           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
+           Refresh Data
+        </button>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
@@ -70,7 +75,7 @@ export default function DashboardPage({ cars, logs, onComplete, onApprove, onRej
                   
                   <div className="bg-slate-50 p-4 rounded-2xl mb-6 border border-slate-100">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Tujuan</p>
-                    <p className="text-sm font-bold text-slate-800 line-clamp-2">"{log.purpose}"</p>
+                    <p className="text-sm font-bold text-slate-800 line-clamp-2">"{log.destination}"</p>
                   </div>
 
                   <div className="flex gap-3">
@@ -114,7 +119,7 @@ export default function DashboardPage({ cars, logs, onComplete, onApprove, onRej
         <div className="space-y-6">
           <div className="flex items-center gap-4">
             <div className="w-2 h-8 bg-slate-400 rounded-full"></div>
-            <h2 className="text-xl font-black text-slate-950 uppercase tracking-wider">Daftar Armada</h2>
+            <h2 className="text-xl font-black text-slate-950 uppercase tracking-wider">Armada Anda</h2>
           </div>
           <div className="bg-white border border-slate-100 rounded-[2.5rem] p-6 shadow-xl space-y-4">
              {cars.map(car => (

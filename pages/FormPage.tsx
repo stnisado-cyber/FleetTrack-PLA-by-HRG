@@ -6,10 +6,12 @@ import { DEPARTMENTS, Icons } from '../constants';
 interface Props {
   cars: Car[];
   networkId: string;
+  isSyncing: boolean;
+  networkError: boolean;
   onSubmit: (log: UsageLog) => void;
 }
 
-export default function FormPage({ cars, networkId, onSubmit }: Props) {
+export default function FormPage({ cars, networkId, isSyncing, networkError, onSubmit }: Props) {
   const [submitted, setSubmitted] = useState(false);
   
   const [formData, setFormData] = useState({
@@ -59,13 +61,20 @@ export default function FormPage({ cars, networkId, onSubmit }: Props) {
 
   return (
     <div className="max-w-xl mx-auto p-6 md:p-12 animate-in fade-in duration-700">
+      {/* HEADER STATUS */}
       <div className="mb-10 flex flex-col items-center text-center">
         <div className="w-16 h-16 bg-fuchsia-600 rounded-2xl flex items-center justify-center text-white mb-6 shadow-xl shadow-fuchsia-500/20">
            <Icons.Car />
         </div>
-        <div className="bg-slate-900 text-white px-4 py-1.5 rounded-full text-[8px] font-black uppercase tracking-[0.2em] mb-4 border border-white/10 shadow-lg">
-           ID JARINGAN: {networkId}
+        
+        {/* Connection Status Badge */}
+        <div className={`mb-4 flex items-center gap-3 px-5 py-2 rounded-full border-2 transition-all ${networkError ? 'bg-red-50 border-red-200' : 'bg-slate-900 border-slate-800'}`}>
+          <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-fuchsia-500 animate-pulse' : (networkError ? 'bg-red-500' : 'bg-green-500')}`}></div>
+          <span className={`text-[9px] font-black uppercase tracking-widest ${networkError ? 'text-red-600' : 'text-white'}`}>
+            {networkError ? 'Koneksi Error' : (isSyncing ? 'Sinkronisasi...' : `KANTOR: ${networkId}`)}
+          </span>
         </div>
+
         <h1 className="text-2xl font-black text-slate-950 uppercase tracking-tight">Form Ambil Mobil</h1>
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mt-2">Isi data permohonan Anda di bawah ini</p>
       </div>
@@ -79,6 +88,12 @@ export default function FormPage({ cars, networkId, onSubmit }: Props) {
             <p className="font-black text-xs uppercase tracking-tight">Berhasil Terkirim ke HRGA!</p>
             <p className="text-[8px] opacity-80 uppercase font-bold">Mohon tunggu persetujuan admin.</p>
           </div>
+        </div>
+      )}
+
+      {networkError && !submitted && (
+        <div className="mb-8 p-4 bg-red-100 border-2 border-red-200 text-red-700 rounded-2xl text-[10px] font-black uppercase text-center tracking-widest animate-bounce">
+          ⚠️ HP Anda Tidak Terkoneksi. Cek Sinyal/Paket Data.
         </div>
       )}
 
@@ -141,7 +156,9 @@ export default function FormPage({ cars, networkId, onSubmit }: Props) {
             </div>
           </div>
 
-          <button type="submit" className="w-full py-6 bg-slate-950 text-white rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl hover:bg-fuchsia-600 transition-all active:scale-95">Kirim Permohonan</button>
+          <button type="submit" disabled={isSyncing} className={`w-full py-6 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3 ${isSyncing ? 'bg-slate-200 text-slate-400' : 'bg-slate-950 text-white hover:bg-fuchsia-600'}`}>
+            {isSyncing ? 'MENGIRIM...' : 'Kirim Permohonan'}
+          </button>
         </form>
       )}
     </div>

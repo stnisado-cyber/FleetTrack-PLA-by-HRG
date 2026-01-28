@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { HashRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Car, UsageLog, FuelLevel, VehicleCondition } from './types';
 import { INITIAL_CARS, Icons } from './constants';
@@ -8,146 +8,171 @@ import DashboardPage from './pages/DashboardPage';
 import HistoryPage from './pages/HistoryPage';
 import ReturnPage from './pages/ReturnPage';
 
-// ID Cloud Storage
 const SHARED_STORAGE_ID = "e089285093556d11e54a";
 
 export default function App() {
   const [isAdmin, setIsAdmin] = useState(() => sessionStorage.getItem('admin_auth') === 'true');
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<string>("-");
-  const [networkError, setNetworkError] = useState(false);
+  const [networkError, setNetworkError] = useState<string | null>(null);
+  const [isReady, setIsReady] = useState(false); // Pastikan data awal sudah ditarik
   
-  // LOGIKA IDENTITAS JARINGAN
   const [networkId] = useState(() => {
     const params = new URLSearchParams(window.location.search);
-    const idFromUrl = params.get('net');
+    let id = params.get('net');
+    
+    if (!id && window.location.hash.includes('?')) {
+      const hashParams = new URLSearchParams(window.location.hash.split('?')[1]);
+      id = hashParams.get('net');
+    }
+    
     const idFromLocal = localStorage.getItem('pla_fleet_net_id');
     
-    if (idFromUrl) {
-      localStorage.setItem('pla_fleet_net_id', idFromUrl);
-      return idFromUrl;
+    if (id) {
+      localStorage.setItem('pla_fleet_net_id', id);
+      return id;
     }
-    
-    if (idFromLocal) return idFromLocal;
-    
-    const newId = `FLEET-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-    localStorage.setItem('pla_fleet_net_id', newId);
-    return newId;
+    return idFromLocal || `FLEET-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
   });
 
-  const [cars, setCars] = useState<Car[]>(() => {
-    const saved = localStorage.getItem('pla_fleet_cars');
-    return saved ? JSON.parse(saved) : INITIAL_CARS;
-  });
+  const [cars, setCars] = useState<Car[]>(INITIAL_CARS);
+  const [logs, setLogs] = useState<UsageLog[]>([]);
 
-  const [logs, setLogs] = useState<UsageLog[]>(() => {
-    const saved = localStorage.getItem('pla_fleet_logs');
-    return saved ? JSON.parse(saved) : [];
-  });
+  // Fungsi ambil data murni dari CLOUD tanpa gangguan cache browser
+  const fetchCloudData = async () => {
+    const timestamp = Date.now();
+    const response = await fetch(`https://api.npoint.io/${SHARED_STORAGE_ID}?cb=${timestamp}`, {
+      cache: 'no-store',
+      headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
+    });
+    if (!response.ok) throw new Error("Server tidak merespon");
+    const data = await response.json();
+    return data[networkId] || null;
+  };
 
-  const API_ENDPOINT = `https://api.npoint.io/${SHARED_STORAGE_ID}`;
-
-  const syncData = useCallback(async () => {
-    if (isSyncing) return;
-    setIsSyncing(true);
+  const syncData = useCallback(async (isSilent = false) => {
+    if (!isSilent) setIsSyncing(true);
     try {
-      const response = await fetch(API_ENDPOINT);
-      if (response.ok) {
-        const cloudData = await response.json();
-        const myNetworkData = cloudData[networkId];
-        
-        if (myNetworkData) {
-          setLogs(currentLocal => {
-            const cloudLogs = myNetworkData.logs || [];
-            if (JSON.stringify(cloudLogs) !== JSON.stringify(currentLocal)) {
-              localStorage.setItem('pla_fleet_logs', JSON.stringify(cloudLogs));
-              return cloudLogs;
-            }
-            return currentLocal;
-          });
-
-          setCars(currentCars => {
-            if (JSON.stringify(currentCars) !== JSON.stringify(myNetworkData.cars)) {
-              localStorage.setItem('pla_fleet_cars', JSON.stringify(myNetworkData.cars));
-              return myNetworkData.cars;
-            }
-            return currentCars;
-          });
-        }
-        setNetworkError(false);
-        setLastSync(new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
+      const myData = await fetchCloudData();
+      if (myData) {
+        setLogs(prev => {
+          const cloudLogs = myData.logs || [];
+          // Merge logic: utamakan yang ada ID-nya (Cloud adalah source of truth)
+          localStorage.setItem('pla_fleet_logs', JSON.stringify(cloudLogs));
+          return cloudLogs;
+        });
+        setCars(prev => {
+          const cloudCars = myData.cars || INITIAL_CARS;
+          localStorage.setItem('pla_fleet_cars', JSON.stringify(cloudCars));
+          return cloudCars;
+        });
       }
-    } catch (e) {
-      setNetworkError(true);
+      setNetworkError(null);
+      setLastSync(new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      setIsReady(true);
+    } catch (e: any) {
+      setNetworkError(e.message);
     } finally {
-      setIsSyncing(false);
+      if (!isSilent) setIsSyncing(false);
     }
-  }, [networkId, isSyncing, API_ENDPOINT]);
+  }, [networkId]);
 
-  const pushData = async (updatedCars: Car[], updatedLogs: UsageLog[]) => {
-    try {
-      const getRes = await fetch(API_ENDPOINT);
-      const allCloudData = getRes.ok ? await getRes.json() : {};
-      
-      allCloudData[networkId] = { 
-        cars: updatedCars, 
-        logs: updatedLogs,
-        lastUpdate: new Date().toISOString()
-      };
+  const pushDataToCloud = async (updatedCars: Car[], updatedLogs: UsageLog[]) => {
+    const response = await fetch(`https://api.npoint.io/${SHARED_STORAGE_ID}`, { cache: 'no-store' });
+    const allData = response.ok ? await response.json() : {};
+    
+    allData[networkId] = {
+      cars: updatedCars,
+      logs: updatedLogs,
+      lastUpdate: new Date().toISOString()
+    };
 
-      await fetch(API_ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(allCloudData)
-      });
-      setLastSync(new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
-    } catch (e) {
-      setNetworkError(true);
-    }
+    const postRes = await fetch(`https://api.npoint.io/${SHARED_STORAGE_ID}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(allData)
+    });
+    
+    if (!postRes.ok) throw new Error("Gagal menyimpan ke Cloud");
+    return true;
   };
 
   useEffect(() => {
     syncData();
-    const interval = setInterval(syncData, 10000); 
+    const interval = setInterval(() => syncData(true), 7000); 
     return () => clearInterval(interval);
   }, [syncData]);
 
-  const updateAll = async (newCars: Car[], newLogs: UsageLog[]) => {
-    setCars(newCars);
-    setLogs(newLogs);
-    localStorage.setItem('pla_fleet_cars', JSON.stringify(newCars));
-    localStorage.setItem('pla_fleet_logs', JSON.stringify(newLogs));
-    await pushData(newCars, newLogs);
+  const handleAddLog = async (log: UsageLog) => {
+    setIsSyncing(true);
+    try {
+      // 1. VERIFIKASI CLOUD INSTAN SEBELUM SUBMIT
+      const latestCloud = await fetchCloudData();
+      const latestCars: Car[] = latestCloud?.cars || INITIAL_CARS;
+      const latestLogs: UsageLog[] = latestCloud?.logs || [];
+      
+      const targetCar = latestCars.find(c => c.id === log.carId);
+      
+      if (!targetCar || targetCar.status !== 'available') {
+        alert("❌ UNIT BARU SAJA DIAMBIL USER LAIN!\nHalaman akan dimuat ulang untuk melihat ketersediaan terbaru.");
+        await syncData();
+        return;
+      }
+
+      // 2. JIKA OK, PROSES BOOKING
+      const updatedCars = latestCars.map(c => c.id === log.carId ? { ...c, status: 'requested' as const } : c);
+      const updatedLogs = [log, ...latestLogs];
+
+      await pushDataToCloud(updatedCars, updatedLogs);
+      
+      // Update UI lokal setelah sukses cloud
+      setCars(updatedCars);
+      setLogs(updatedLogs);
+      setNetworkError(null);
+    } catch (e: any) {
+      alert("⚠️ KONEKSI GAGAL: Data tidak terkirim ke HRGA. Cek internet.");
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
-  const handleAddLog = (log: UsageLog) => {
-    const updatedLogs = [log, ...logs];
-    const updatedCars = cars.map(c => c.id === log.carId ? { ...c, status: 'requested' as const } : c);
-    updateAll(updatedCars, updatedLogs);
-  };
-
-  const handleApprove = (id: string) => {
+  const handleApprove = async (id: string) => {
     const log = logs.find(l => l.id === id);
     if (!log) return;
     const updatedLogs = logs.map(l => l.id === id ? { ...l, status: 'active' as const } : l);
     const updatedCars = cars.map(c => c.id === log.carId ? { ...c, status: 'on-duty' as const } : c);
-    updateAll(updatedCars, updatedLogs);
+    
+    setCars(updatedCars);
+    setLogs(updatedLogs);
+    await pushDataToCloud(updatedCars, updatedLogs);
   };
 
-  const handleReject = (id: string) => {
+  const handleReject = async (id: string) => {
     const log = logs.find(l => l.id === id);
     if (!log) return;
     const updatedLogs = logs.map(l => l.id === id ? { ...l, status: 'rejected' as const } : l);
     const updatedCars = cars.map(c => c.id === log.carId ? { ...c, status: 'available' as const } : c);
-    updateAll(updatedCars, updatedLogs);
+    
+    setCars(updatedCars);
+    setLogs(updatedLogs);
+    await pushDataToCloud(updatedCars, updatedLogs);
   };
 
-  const handleComplete = (id: string, endData: any) => {
+  const handleComplete = async (id: string, endData: any) => {
     const log = logs.find(l => l.id === id);
     if (!log) return;
     const updatedLogs = logs.map(l => l.id === id ? { ...l, status: 'completed' as const, ...endData } : l);
     const updatedCars = cars.map(c => c.id === log.carId ? { ...c, status: 'available' as const } : c);
-    updateAll(updatedCars, updatedLogs);
+    
+    setCars(updatedCars);
+    setLogs(updatedLogs);
+    await pushDataToCloud(updatedCars, updatedLogs);
+  };
+
+  const handleToggleMaintenance = async (carId: string) => {
+    const updatedCars = cars.map(c => c.id === carId ? { ...c, status: (c.status === 'maintenance' ? 'available' : 'maintenance') as any } : c);
+    setCars(updatedCars);
+    await pushDataToCloud(updatedCars, logs);
   };
 
   return (
@@ -157,34 +182,39 @@ export default function App() {
           isAdmin={isAdmin} 
           isSyncing={isSyncing} 
           lastSync={lastSync} 
-          networkError={networkError} 
+          networkError={!!networkError} 
           networkId={networkId}
           onLogout={() => { setIsAdmin(false); sessionStorage.removeItem('admin_auth'); }} 
           pendingCount={logs.filter(l => l.status === 'pending').length} 
         />
         
         <main className="flex-1 w-full pb-24 md:pb-0 overflow-x-hidden relative">
-          <div className="md:hidden bg-slate-950 text-white p-3 flex justify-between items-center text-[8px] font-black uppercase tracking-widest border-b border-white/5">
+          {/* Mobile Header Indikator Sinkronisasi */}
+          <div className={`md:hidden p-2 flex justify-between items-center text-[8px] font-black uppercase tracking-widest border-b z-[60] sticky top-0 ${networkError ? 'bg-red-600 text-white' : 'bg-slate-950 text-white'}`}>
              <div className="flex items-center gap-2">
-               <div className={`w-1.5 h-1.5 rounded-full ${isSyncing ? 'bg-fuchsia-500 animate-pulse' : 'bg-green-500'}`}></div>
-               ID JARINGAN: {networkId}
+               <div className={`w-1.5 h-1.5 rounded-full ${isSyncing ? 'bg-fuchsia-400 animate-pulse' : (networkError ? 'bg-white' : 'bg-green-500')}`}></div>
+               {networkError ? "KONEKSI TERPUTUS" : `KANTOR: ${networkId}`}
              </div>
-             <div className="text-slate-500">SINKRON: {lastSync}</div>
+             <div className="opacity-60">{isSyncing ? "MENGAMBIL DATA..." : `SINKRON: ${lastSync}`}</div>
           </div>
 
+          {!isReady && !networkError && (
+             <div className="fixed inset-0 bg-white z-[100] flex flex-col items-center justify-center">
+                <div className="w-12 h-12 border-4 border-fuchsia-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Menghubungkan ke Cloud HRGA...</p>
+             </div>
+          )}
+
           <Routes>
-            <Route path="/" element={<FormPage cars={cars} networkId={networkId} onSubmit={handleAddLog} />} />
+            <Route path="/" element={<FormPage cars={cars} networkId={networkId} isSyncing={isSyncing} networkError={!!networkError} onSubmit={handleAddLog} />} />
             <Route path="/return" element={<ReturnPage logs={logs} onComplete={handleComplete} onExtend={() => {}} />} />
             <Route 
               path="/dashboard" 
-              element={isAdmin ? <DashboardPage cars={cars} logs={logs} onComplete={handleComplete} onApprove={handleApprove} onReject={handleReject} onToggleMaintenance={(id) => {
-                const updated = cars.map(c => c.id === id ? { ...c, status: (c.status === 'maintenance' ? 'available' : 'maintenance') as any } : c);
-                updateAll(updated, logs);
-              }} /> : <AdminGuard onAuth={(pin) => { if(pin === '1234') { setIsAdmin(true); sessionStorage.setItem('admin_auth', 'true'); return true; } return false; }} />} 
+              element={isAdmin ? <DashboardPage cars={cars} logs={logs} onComplete={handleComplete} onApprove={handleApprove} onReject={handleReject} onRefresh={() => syncData()} onToggleMaintenance={handleToggleMaintenance} /> : <AdminGuard onAuth={(pin) => { if(pin === '1234') { setIsAdmin(true); sessionStorage.setItem('admin_auth', 'true'); return true; } return false; }} />} 
             />
             <Route 
               path="/history" 
-              element={isAdmin ? <HistoryPage logs={logs} onImportLogs={(imported) => updateAll(cars, imported)} /> : <AdminGuard onAuth={() => false} />} 
+              element={isAdmin ? <HistoryPage logs={logs} onImportLogs={async (imported) => { setLogs(imported); await pushDataToCloud(cars, imported); }} /> : <AdminGuard onAuth={() => false} />} 
             />
           </Routes>
         </main>
@@ -206,13 +236,9 @@ function Sidebar({ isAdmin, isSyncing, lastSync, networkError, networkId, onLogo
   const location = useLocation();
   const [copied, setCopied] = useState(false);
 
-  // LOGIKA BARU: Jauh lebih aman, anti double domain
   const shareLink = () => {
-    // Ambil URL dasar (buang semua setelah ? atau #)
-    const baseUrl = window.location.href.split(/[?#]/)[0];
-    
-    // Rakit ulang secara manual dan bersih
-    // Format: URL_DASAR + ?net=KODE + #/
+    // Pastikan link menyertakan networkId agar user lain masuk ke database yang sama
+    const baseUrl = window.location.origin + window.location.pathname;
     const finalUrl = `${baseUrl}?net=${networkId}#/`;
     
     navigator.clipboard.writeText(finalUrl);
@@ -248,12 +274,12 @@ function Sidebar({ isAdmin, isSyncing, lastSync, networkError, networkId, onLogo
         <div className={`px-5 py-4 rounded-2xl border transition-all ${networkError ? 'border-red-500 bg-red-500/10' : 'border-slate-800 bg-slate-900/50'}`}>
           <div className="flex items-center justify-between mb-1">
             <span className="text-[7px] font-black uppercase text-slate-500">KODE KANTOR:</span>
-            <div className={`w-1.5 h-1.5 rounded-full ${isSyncing ? 'bg-fuchsia-500 animate-ping' : 'bg-green-500'}`}></div>
+            <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-fuchsia-500 animate-ping' : (networkError ? 'bg-red-500' : 'bg-green-500')}`}></div>
           </div>
           <p className="text-[11px] font-black uppercase text-fuchsia-500 tracking-[0.2em]">{networkId}</p>
           <div className="flex justify-between items-center mt-2 border-t border-slate-800 pt-2">
             <p className="text-[7px] font-bold text-slate-600 uppercase">SINKRON: {lastSync}</p>
-            <p className="text-[7px] font-black text-slate-400 uppercase">{networkError ? 'OFFLINE' : 'ONLINE'}</p>
+            <p className="text-[7px] font-black text-slate-400 uppercase">{networkError ? 'ERROR' : 'CLOUD READY'}</p>
           </div>
         </div>
         
