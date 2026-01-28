@@ -69,39 +69,44 @@ export default function FormPage({ cars, networkId, isSyncing, networkError, onS
         <div className={`mb-4 flex items-center gap-3 px-5 py-2 rounded-full border-2 transition-all ${networkError ? 'bg-amber-50 border-amber-200' : 'bg-slate-900 border-slate-800'}`}>
           <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-fuchsia-500 animate-pulse' : (networkError ? 'bg-amber-500' : 'bg-green-500')}`}></div>
           <span className={`text-[9px] font-black uppercase tracking-widest ${networkError ? 'text-amber-700' : 'text-white'}`}>
-            {networkError ? 'Menghubungkan ke Cloud...' : (isSyncing ? 'Sinkronisasi...' : `KODE: ${networkId}`)}
+            {networkError ? 'Sinyal Lambat (Mode Offline)' : (isSyncing ? 'Memperbarui...' : `DATABASE: ${networkId}`)}
           </span>
         </div>
 
-        <h1 className="text-2xl font-black text-slate-950 uppercase tracking-tight">Form Ambil Mobil</h1>
+        <h1 className="text-2xl font-black text-slate-950 uppercase tracking-tight">Booking Mobil Kantor</h1>
         {networkError && (
-          <p className="text-[9px] font-bold text-amber-600 uppercase mt-2">Server sedang sibuk. Silakan tetap isi form, kami akan mencoba kirim ulang.</p>
+          <p className="text-[9px] font-bold text-amber-600 uppercase mt-2">Server sedang sibuk. Silakan tetap isi form, kami akan terus mencoba mengirim.</p>
         )}
       </div>
 
       {submitted && (
         <div className="mb-8 p-6 bg-green-600 text-white rounded-[2rem] flex items-center gap-4 shadow-xl animate-in zoom-in duration-500">
-          <div className="bg-white p-2 rounded-lg text-green-600">
+          <div className="bg-white text-green-600 p-2 rounded-lg">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"><polyline points="20 6 9 17 4 12"/></svg>
           </div>
           <div>
-            <p className="font-black text-xs uppercase tracking-tight">Berhasil Terkirim ke HRGA!</p>
-            <p className="text-[8px] opacity-80 uppercase font-bold">Mohon tunggu persetujuan admin.</p>
+            <p className="font-black text-xs uppercase tracking-tight">Permohonan Terkirim!</p>
+            <p className="text-[8px] opacity-80 uppercase font-bold">Sedang menunggu konfirmasi Admin HRGA.</p>
           </div>
         </div>
       )}
 
       {!formData.carId ? (
         <div className="space-y-4">
-          <div className="flex justify-between items-center mb-6">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pilih Unit Tersedia</p>
-            <button onClick={() => window.location.reload()} className="text-[9px] font-black text-fuchsia-600 uppercase bg-fuchsia-50 px-3 py-1 rounded-lg">Refresh Data</button>
+          <div className="flex justify-between items-center mb-6 px-2">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ketersediaan Unit</p>
+            <button onClick={() => window.location.reload()} className="text-[9px] font-black text-fuchsia-600 uppercase bg-fuchsia-50 px-3 py-1 rounded-lg">Muat Ulang Data</button>
           </div>
           <div className="grid grid-cols-1 gap-4">
             {cars.map((car) => {
               const isAvailable = car.status === 'available';
               return (
-                <button key={car.id} disabled={!isAvailable} onClick={() => setFormData({...formData, carId: car.id})} className={`p-6 rounded-[2rem] border-2 text-left flex items-center justify-between transition-all ${isAvailable ? 'bg-white border-slate-100 hover:border-fuchsia-50' : 'bg-slate-50 border-slate-50 opacity-50 grayscale'}`}>
+                <button 
+                  key={car.id} 
+                  disabled={!isAvailable} 
+                  onClick={() => setFormData({...formData, carId: car.id})} 
+                  className={`p-6 rounded-[2rem] border-2 text-left flex items-center justify-between transition-all ${isAvailable ? 'bg-white border-slate-100 hover:border-fuchsia-100 active:scale-[0.98] shadow-sm' : 'bg-slate-50 border-slate-50 opacity-50 grayscale'}`}
+                >
                   <div className="flex items-center gap-4">
                     <div className={`p-3 rounded-xl ${isAvailable ? 'bg-slate-950 text-white' : 'bg-slate-200 text-slate-400'}`}>
                       <Icons.Car />
@@ -111,8 +116,14 @@ export default function FormPage({ cars, networkId, isSyncing, networkError, onS
                       <p className="text-[9px] font-mono font-bold text-slate-400 mt-1 uppercase">{car.plateNumber}</p>
                     </div>
                   </div>
-                  <span className={`text-[8px] font-black px-3 py-1 rounded-full uppercase ${isAvailable ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-500'}`}>
-                    {isAvailable ? 'Tersedia' : car.status}
+                  <span className={`text-[8px] font-black px-3 py-1 rounded-full uppercase ${
+                    car.status === 'available' ? 'bg-green-100 text-green-700' :
+                    car.status === 'on-duty' ? 'bg-fuchsia-100 text-fuchsia-600' :
+                    'bg-slate-200 text-slate-500'
+                  }`}>
+                    {car.status === 'available' ? 'Tersedia' : 
+                     car.status === 'on-duty' ? 'Di Jalan' : 
+                     car.status === 'requested' ? 'Dipesan' : car.status}
                   </span>
                 </button>
               );
@@ -130,8 +141,8 @@ export default function FormPage({ cars, networkId, isSyncing, networkError, onS
 
           <div className="space-y-6">
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nama User</label>
-              <input type="text" required value={formData.driverName} onChange={e => setFormData({ ...formData, driverName: e.target.value })} className="w-full px-6 py-4 rounded-xl border-2 border-slate-50 bg-slate-50 font-black text-sm outline-none focus:border-fuchsia-500" placeholder="Nama Lengkap" />
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nama Lengkap User</label>
+              <input type="text" required value={formData.driverName} onChange={e => setFormData({ ...formData, driverName: e.target.value })} className="w-full px-6 py-4 rounded-xl border-2 border-slate-50 bg-slate-50 font-black text-sm outline-none focus:border-fuchsia-500" placeholder="Contoh: Budi Santoso" />
             </div>
 
             <div className="space-y-2">
@@ -148,12 +159,12 @@ export default function FormPage({ cars, networkId, isSyncing, networkError, onS
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tujuan / Keperluan</label>
-              <input type="text" required value={formData.destination} onChange={e => setFormData({ ...formData, destination: e.target.value })} className="w-full px-6 py-4 rounded-xl border-2 border-slate-50 bg-slate-50 font-black text-sm outline-none" placeholder="Contoh: Meeting Gedung A" />
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Keperluan & Tujuan</label>
+              <input type="text" required value={formData.destination} onChange={e => setFormData({ ...formData, destination: e.target.value })} className="w-full px-6 py-4 rounded-xl border-2 border-slate-50 bg-slate-50 font-black text-sm outline-none" placeholder="Contoh: Meeting Proyek di Site A" />
             </div>
           </div>
 
-          <button type="submit" disabled={isSyncing} className={`w-full py-6 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3 ${isSyncing ? 'bg-slate-200 text-slate-400' : 'bg-slate-950 text-white hover:bg-fuchsia-600'}`}>
+          <button type="submit" disabled={isSyncing} className={`w-full py-6 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3 ${isSyncing ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-slate-950 text-white hover:bg-fuchsia-600'}`}>
             {isSyncing ? 'MENGIRIM...' : 'Kirim Permohonan'}
           </button>
         </form>
