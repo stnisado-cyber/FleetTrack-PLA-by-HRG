@@ -15,10 +15,12 @@ export default function FormPage({ cars, networkId, isSyncing, networkError, onS
   const [submitted, setSubmitted] = useState(false);
   
   const [formData, setFormData] = useState({
-    carId: '',
+    unitId: '',
     driverName: '',
     department: '',
     purpose: '',
+    plannedStartTime: new Date().toISOString().slice(0, 16),
+    plannedEndTime: new Date(new Date().getTime() + 7200000).toISOString().slice(0, 16),
     departureTime: new Date().toISOString().slice(0, 16),
     estimatedArrivalTime: new Date(new Date().getTime() + 7200000).toISOString().slice(0, 16),
     startOdometer: '',
@@ -28,7 +30,7 @@ export default function FormPage({ cars, networkId, isSyncing, networkError, onS
     notes: ''
   });
 
-  const selectedCar = cars.find(c => c.id === formData.carId);
+  const selectedCar = cars.find(c => c.id === formData.unitId);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,14 +38,16 @@ export default function FormPage({ cars, networkId, isSyncing, networkError, onS
 
     const newLog: UsageLog = {
       id: crypto.randomUUID(),
-      carId: formData.carId,
+      unitId: formData.unitId,
       carName: `${selectedCar.name} (${selectedCar.plateNumber})`,
       driverName: formData.driverName,
       department: formData.department,
       purpose: formData.purpose,
+      plannedStartTime: new Date(formData.plannedStartTime).toISOString(),
+      plannedEndTime: new Date(formData.plannedEndTime).toISOString(),
       departureTime: new Date(formData.departureTime).toISOString(),
       estimatedArrivalTime: new Date(formData.estimatedArrivalTime).toISOString(),
-      startOdometer: parseInt(formData.startOdometer) || 0,
+      startOdometer: 0,
       startFuel: formData.startFuel,
       startCondition: formData.startCondition,
       destination: formData.destination,
@@ -54,7 +58,7 @@ export default function FormPage({ cars, networkId, isSyncing, networkError, onS
 
     onSubmit(newLog);
     setSubmitted(true);
-    setFormData({ ...formData, carId: '', driverName: '', purpose: '', destination: '', startOdometer: '' });
+    setFormData({ ...formData, unitId: '', driverName: '', purpose: '', destination: '', startOdometer: '' });
     setTimeout(() => setSubmitted(false), 5000);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -69,7 +73,7 @@ export default function FormPage({ cars, networkId, isSyncing, networkError, onS
         <div className={`mb-4 flex items-center gap-3 px-5 py-2 rounded-full border-2 transition-all ${networkError ? 'bg-amber-50 border-amber-200' : 'bg-slate-900 border-slate-800'}`}>
           <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-fuchsia-500 animate-pulse' : (networkError ? 'bg-amber-500' : 'bg-green-500')}`}></div>
           <span className={`text-[9px] font-black uppercase tracking-widest ${networkError ? 'text-amber-700' : 'text-white'}`}>
-            {networkError ? 'Sinyal Lambat (Mode Offline)' : (isSyncing ? 'Memperbarui...' : `DATABASE: ${networkId}`)}
+            {networkError ? 'Sinyal Lambat (Mode Offline)' : (isSyncing ? 'Memperbarui...' : 'SISTEM TERKONEKSI')}
           </span>
         </div>
 
@@ -91,7 +95,7 @@ export default function FormPage({ cars, networkId, isSyncing, networkError, onS
         </div>
       )}
 
-      {!formData.carId ? (
+      {!formData.unitId ? (
         <div className="space-y-4">
           <div className="flex justify-between items-center mb-6 px-2">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ketersediaan Unit</p>
@@ -103,12 +107,16 @@ export default function FormPage({ cars, networkId, isSyncing, networkError, onS
               return (
                 <button 
                   key={car.id} 
-                  disabled={!isAvailable} 
-                  onClick={() => setFormData({...formData, carId: car.id})} 
-                  className={`p-6 rounded-[2rem] border-2 text-left flex items-center justify-between transition-all ${isAvailable ? 'bg-white border-slate-100 hover:border-fuchsia-100 active:scale-[0.98] shadow-sm' : 'bg-slate-50 border-slate-50 opacity-50 grayscale'}`}
+                  disabled={!isAvailable}
+                  onClick={() => isAvailable && setFormData({...formData, unitId: car.id})} 
+                  className={`p-6 rounded-[2rem] border-2 text-left flex items-center justify-between transition-all ${
+                    isAvailable 
+                      ? 'bg-white border-slate-100 hover:border-fuchsia-100 active:scale-[0.98] shadow-sm cursor-pointer' 
+                      : 'bg-slate-50 border-slate-50 cursor-not-allowed opacity-80'
+                  }`}
                 >
                   <div className="flex items-center gap-4">
-                    <div className={`p-3 rounded-xl ${isAvailable ? 'bg-slate-950 text-white' : 'bg-slate-200 text-slate-400'}`}>
+                    <div className={`p-3 rounded-xl bg-slate-950 text-white`}>
                       <Icons.Car />
                     </div>
                     <div>
@@ -133,7 +141,7 @@ export default function FormPage({ cars, networkId, isSyncing, networkError, onS
       ) : (
         <form onSubmit={handleSubmit} className="bg-white rounded-[2.5rem] border border-slate-100 shadow-2xl p-8 space-y-8 animate-in slide-in-from-bottom-4 duration-500">
           <div className="flex items-center justify-between mb-4">
-             <button type="button" onClick={() => setFormData({...formData, carId: ''})} className="text-[10px] font-black text-fuchsia-600 uppercase tracking-widest flex items-center gap-2">
+             <button type="button" onClick={() => setFormData({...formData, unitId: ''})} className="text-[10px] font-black text-fuchsia-600 uppercase tracking-widest flex items-center gap-2">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"><path d="m15 18-6-6 6-6"/></svg> Kembali
              </button>
              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Unit: {selectedCar?.name}</span>
@@ -142,7 +150,7 @@ export default function FormPage({ cars, networkId, isSyncing, networkError, onS
           <div className="space-y-6">
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nama Lengkap User</label>
-              <input type="text" required value={formData.driverName} onChange={e => setFormData({ ...formData, driverName: e.target.value })} className="w-full px-6 py-4 rounded-xl border-2 border-slate-50 bg-slate-50 font-black text-sm outline-none focus:border-fuchsia-500" placeholder="Contoh: Budi Santoso" />
+              <input type="text" required value={formData.driverName} onChange={e => setFormData({ ...formData, driverName: e.target.value })} className="w-full px-6 py-4 rounded-xl border-2 border-slate-50 bg-slate-50 font-black text-sm outline-none focus:border-fuchsia-500" placeholder="Contoh: Anisah" />
             </div>
 
             <div className="space-y-2">
@@ -154,13 +162,19 @@ export default function FormPage({ cars, networkId, isSyncing, networkError, onS
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Odometer Awal (KM)</label>
-              <input type="number" required value={formData.startOdometer} onChange={e => setFormData({ ...formData, startOdometer: e.target.value })} className="w-full px-6 py-4 rounded-xl border-2 border-slate-50 bg-slate-50 font-mono font-black text-xl text-fuchsia-600 outline-none" placeholder="0" />
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Keperluan & Tujuan</label>
+              <input type="text" required value={formData.purpose} onChange={e => setFormData({ ...formData, purpose: e.target.value })} className="w-full px-6 py-4 rounded-xl border-2 border-slate-50 bg-slate-50 font-black text-sm outline-none" placeholder="Contoh: Meeting Proyek di Site A" />
             </div>
 
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Keperluan & Tujuan</label>
-              <input type="text" required value={formData.destination} onChange={e => setFormData({ ...formData, destination: e.target.value })} className="w-full px-6 py-4 rounded-xl border-2 border-slate-50 bg-slate-50 font-black text-sm outline-none" placeholder="Contoh: Meeting Proyek di Site A" />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Rencana Pakai</label>
+                <input type="datetime-local" required value={formData.plannedStartTime} onChange={e => setFormData({ ...formData, plannedStartTime: e.target.value })} className="w-full px-4 py-4 rounded-xl border-2 border-slate-50 bg-slate-50 font-black text-xs outline-none" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sampai Kapan</label>
+                <input type="datetime-local" required value={formData.plannedEndTime} onChange={e => setFormData({ ...formData, plannedEndTime: e.target.value })} className="w-full px-4 py-4 rounded-xl border-2 border-slate-50 bg-slate-50 font-black text-xs outline-none" />
+              </div>
             </div>
           </div>
 

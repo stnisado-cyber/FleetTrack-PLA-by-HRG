@@ -4,41 +4,19 @@ import { UsageLog } from '../types';
 
 interface Props {
   logs: UsageLog[];
-  onImportLogs: (importedLogs: UsageLog[]) => void;
+  onDelete?: (id: string, unitId: string) => void;
 }
 
-export default function HistoryPage({ logs, onImportLogs }: Props) {
+export default function HistoryPage({ logs, onDelete }: Props) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
-  const [showSync, setShowSync] = useState(false);
-  const [syncCode, setSyncCode] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState<{id: string, unitId: string} | null>(null);
 
   const filteredLogs = logs.filter(log => 
     log.driverName.toLowerCase().includes(searchTerm.toLowerCase()) ||
     log.carName.toLowerCase().includes(searchTerm.toLowerCase()) ||
     log.department.toLowerCase().includes(searchTerm.toLowerCase())
   );
-
-  const handleExport = () => {
-    const data = btoa(JSON.stringify(logs));
-    setSyncCode(data);
-    navigator.clipboard.writeText(data);
-    alert("Kode Sync berhasil disalin! Kirim kode ini ke admin untuk sinkronisasi data.");
-  };
-
-  const handleImport = () => {
-    try {
-      const decoded = JSON.parse(atob(syncCode));
-      if (Array.isArray(decoded)) {
-        onImportLogs(decoded);
-        setSyncCode('');
-        setShowSync(false);
-        alert("Data berhasil digabungkan!");
-      }
-    } catch (e) {
-      alert("Kode Sync tidak valid.");
-    }
-  };
 
   const formatDate = (dateStr: string) => {
     return new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(dateStr));
@@ -57,12 +35,6 @@ export default function HistoryPage({ logs, onImportLogs }: Props) {
             <p className="text-[10px] font-black uppercase tracking-[0.3em] text-fuchsia-600">Centralized Data Hub</p>
           </div>
           <h1 className="text-3xl font-black text-slate-950 uppercase tracking-tight">Log Aktivitas Operasional</h1>
-        </div>
-        <div className="flex gap-4">
-          <button onClick={() => setShowSync(true)} className="px-6 py-5 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 shadow-xl transition-all flex items-center gap-3">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-            Manual Sync
-          </button>
         </div>
       </div>
 
@@ -83,7 +55,8 @@ export default function HistoryPage({ logs, onImportLogs }: Props) {
                 <th className="px-8 py-8 border-r border-slate-900 text-center">Waktu</th>
                 <th className="px-8 py-8 border-r border-slate-900 text-center">Energi & KM</th>
                 <th className="px-8 py-8 text-center">Dokumen</th>
-                <th className="px-8 py-8 text-center">Status</th>
+                <th className="px-8 py-8 text-center border-r border-slate-900">Status</th>
+                <th className="px-8 py-8 text-center uppercase tracking-[0.2em] font-black text-[10px]">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -99,7 +72,10 @@ export default function HistoryPage({ logs, onImportLogs }: Props) {
                   </td>
                   <td className="px-8 py-8 text-center">
                     <p className="text-xs font-black text-slate-950">{formatDate(log.departureTime)}</p>
-                    <p className="text-[10px] font-bold text-fuchsia-600">{formatTime(log.departureTime)} WIB</p>
+                    <p className="text-[10px] font-bold text-fuchsia-600 mb-2">{formatTime(log.departureTime)} WIB</p>
+                    <div className="pt-2 border-t border-slate-100">
+                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Rencana: {formatTime(log.plannedStartTime)} - {formatTime(log.plannedEndTime)}</p>
+                    </div>
                   </td>
                   <td className="px-8 py-8">
                     <div className="flex flex-col gap-1 items-center">
@@ -110,8 +86,8 @@ export default function HistoryPage({ logs, onImportLogs }: Props) {
                     </div>
                   </td>
                   <td className="px-8 py-8 text-center">
-                    {log.returnPhoto ? (
-                      <button onClick={() => setSelectedPhoto(log.returnPhoto!)} className="p-3 bg-fuchsia-100 text-fuchsia-600 rounded-xl hover:bg-fuchsia-600 hover:text-white transition-all shadow-sm">
+                    {(log.returnPhoto || log.odometerPhotoUrl) ? (
+                      <button onClick={() => setSelectedPhoto((log.returnPhoto || log.odometerPhotoUrl)!)} className="p-3 bg-fuchsia-100 text-fuchsia-600 rounded-xl hover:bg-fuchsia-600 hover:text-white transition-all shadow-sm">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
                       </button>
                     ) : (
@@ -125,8 +101,17 @@ export default function HistoryPage({ logs, onImportLogs }: Props) {
                       log.status === 'rejected' ? 'bg-red-50 text-red-600 border-red-100' :
                       'bg-amber-500 text-slate-950 border-amber-600'
                     }`}>
-                      {log.status}
+                      {log.status === 'on-duty' ? 'ON TRIP' : log.status}
                     </span>
+                  </td>
+                  <td className="px-8 py-8 text-center">
+                    <button 
+                      onClick={() => setConfirmDelete({ id: log.id, unitId: log.unitId })}
+                      className="p-3 bg-red-50 text-red-500 rounded-xl hover:bg-red-600 hover:text-white transition-all group-hover:shadow-md"
+                      title="Hapus Log"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -134,35 +119,6 @@ export default function HistoryPage({ logs, onImportLogs }: Props) {
           </table>
         </div>
       </div>
-
-      {showSync && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xl flex items-center justify-center p-6 z-[300] animate-in fade-in duration-300">
-          <div className="bg-white rounded-[3rem] p-12 w-full max-w-xl shadow-2xl">
-            <h3 className="text-2xl font-black text-slate-950 uppercase tracking-tight mb-4">Sync Center</h3>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-8">Gabungkan data manual dari perangkat lain</p>
-            
-            <div className="space-y-8">
-              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Export Data</p>
-                <button onClick={handleExport} className="w-full py-4 bg-slate-950 text-white rounded-xl font-black text-[10px] uppercase tracking-widest">Salin Kode Sync Saya</button>
-              </div>
-
-              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Import Data</p>
-                <textarea 
-                  value={syncCode}
-                  onChange={e => setSyncCode(e.target.value)}
-                  placeholder="Paste kode di sini..."
-                  className="w-full h-24 p-4 rounded-xl border-2 border-slate-200 outline-none focus:border-fuchsia-500 font-mono text-[10px] mb-4"
-                />
-                <button onClick={handleImport} className="w-full py-4 bg-fuchsia-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest">Gabungkan Data Sekarang</button>
-              </div>
-            </div>
-
-            <button onClick={() => setShowSync(false)} className="w-full mt-6 text-slate-400 font-black uppercase text-[10px]">Tutup</button>
-          </div>
-        </div>
-      )}
 
       {selectedPhoto && (
         <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-2xl z-[400] flex items-center justify-center p-6 md:p-12 animate-in fade-in duration-300">
@@ -172,6 +128,21 @@ export default function HistoryPage({ logs, onImportLogs }: Props) {
            <div className="max-w-5xl w-full h-full flex flex-col items-center justify-center gap-8">
               <div className="bg-white p-4 rounded-[3rem] shadow-2xl rotate-2 hover:rotate-0 transition-transform duration-500">
                 <img src={selectedPhoto} className="max-h-[70vh] w-auto rounded-[2rem] shadow-inner" alt="Parking documentation" />
+              </div>
+           </div>
+        </div>
+      )}
+      {confirmDelete && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xl z-[500] flex items-center justify-center p-6 animate-in fade-in duration-300">
+           <div className="bg-white rounded-[3rem] p-10 w-full max-w-sm text-center shadow-2xl">
+              <div className="w-20 h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-8 animate-bounce">
+                <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+              </div>
+              <h3 className="text-2xl font-black text-slate-950 uppercase tracking-tight mb-4">Hapus Log Ini?</h3>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-8 leading-relaxed">Data ini akan dihapus permanen dari database cloud.</p>
+              <div className="flex flex-col gap-3">
+                <button onClick={() => { onDelete?.(confirmDelete.id, confirmDelete.unitId); setConfirmDelete(null); }} className="w-full py-5 bg-red-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl hover:bg-red-700 transition-all">Ya, Hapus Permanen</button>
+                <button onClick={() => setConfirmDelete(null)} className="w-full py-5 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] hover:bg-slate-200 transition-all">Batalkan</button>
               </div>
            </div>
         </div>

@@ -11,11 +11,13 @@ export type VehicleCondition = 'BAIK' | 'PERLU PENGECEKAN';
 
 export interface UsageLog {
   id: string;
-  carId: string;
+  unitId: string;
   carName: string;
   driverName: string;
   department: string;
   purpose: string;
+  plannedStartTime: string;
+  plannedEndTime: string;
   departureTime: string;
   estimatedArrivalTime: string;
   arrivalTime?: string;
@@ -27,9 +29,13 @@ export interface UsageLog {
   endCondition?: VehicleCondition;
   destination: string;
   notes?: string;
-  status: 'pending' | 'active' | 'completed' | 'rejected';
+  status: 'pending' | 'active' | 'completed' | 'rejected' | 'on-duty';
   requestDate: string;
   returnPhoto?: string;
+  parkingPhotoUrl?: string;
+  speedometerPhotoUrl?: string;
+  odometerPhotoUrl?: string;
+  odometerPhotoFile?: File;
 }
 
 export interface AppState {

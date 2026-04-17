@@ -2,14 +2,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { HashRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Car, UsageLog, FuelLevel, VehicleCondition } from './types';
-import { INITIAL_CARS, Icons } from './constants';
+import { Icons } from './constants';
 import FormPage from './pages/FormPage';
 import DashboardPage from './pages/DashboardPage';
 import HistoryPage from './pages/HistoryPage';
 import ReturnPage from './pages/ReturnPage';
-
-// ID Database Utama yang digunakan bersama
-const SHARED_STORAGE_ID = "e089285093556d11e54a";
+import { supabase } from './services/supabase';
 
 export default function App() {
   const [isAdmin, setIsAdmin] = useState(() => sessionStorage.getItem('admin_auth') === 'true');
@@ -32,14 +30,15 @@ export default function App() {
       return id;
     }
     
-    const finalId = idFromLocal || `FLEET-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    // GUNAKAN DEFAULT JIKA TIDAK ADA (Agar admin & user langsung nyambung)
+    const finalId = idFromLocal || 'PLA-FLEET-MAIN'; 
     localStorage.setItem('pla_fleet_net_id', finalId);
     return finalId;
   });
 
   const [cars, setCars] = useState<Car[]>(() => {
     const saved = localStorage.getItem(`cars_${networkId}`);
-    return saved ? JSON.parse(saved) : INITIAL_CARS;
+    return saved ? JSON.parse(saved) : [];
   });
   
   const [logs, setLogs] = useState<UsageLog[]>(() => {
@@ -47,45 +46,79 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Fungsi Tarik Data Cloud dengan Proteksi Timeout
-  const fetchCloudData = async (retries = 2) => {
-    const timestamp = Date.now();
-    for (let i = 0; i < retries; i++) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 detik timeout
+  // Fungsi Tarik Data Cloud dari Supabase (Multi-Table)
+  const fetchCloudData = async () => {
+    try {
+      // TULIS ULANG: Menggunakan fleet_units dengan kolom spesifik: id, nama_unit, plat_nomor, status
+      const { data: unitsData, error: unitsError } = await supabase
+        .from('fleet_units')
+        .select('id, nama_unit, plat_nomor, status');
 
-        const response = await fetch(`https://api.npoint.io/${SHARED_STORAGE_ID}?cb=${timestamp}`, {
-          signal: controller.signal,
-          cache: 'no-store'
-        });
-        
-        clearTimeout(timeoutId);
+      if (unitsError) throw unitsError;
 
-        if (!response.ok) throw new Error("Server Busy");
-        const allData = await response.json();
-        return allData[networkId] || null;
-      } catch (e) {
-        if (i === retries - 1) throw e;
-        await new Promise(res => setTimeout(res, 1000));
-      }
+      const { data: bookingsData, error: bookingsError } = await supabase
+        .from('fleet_bookings')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (bookingsError) throw bookingsError;
+
+      // Transform DB columns to App state
+      const mappedCars: Car[] = (unitsData || []).map(u => {
+        let status = u.status?.toLowerCase() || 'available';
+        // Normalisasi: Ubah "on duty" atau "on duty " menjadi "on-duty"
+        if (status.includes('on duty') || status.includes('on trip')) {
+          status = 'on-duty';
+        }
+        return {
+          id: u.id.toString(),
+          name: u.nama_unit,
+          plateNumber: u.plat_nomor,
+          status: status as any
+        };
+      });
+
+      const mappedLogs: UsageLog[] = (bookingsData || []).map(b => {
+        const unit = mappedCars.find(c => c.id === b.unit_id?.toString());
+        const approval = b.status_approval?.toLowerCase() || 'pending';
+        const isActive = approval === 'active' || approval === 'on-duty' || approval === 'on duty' || approval === 'on trip';
+        return {
+          id: b.id.toString(),
+          unitId: b.unit_id?.toString() || '',
+          carName: unit?.name || 'Unknown Unit',
+          driverName: b.nama_user || '',
+          department: b.departemen || '',
+          purpose: b.keperluan_tujuan || b.purpose || '',
+          plannedStartTime: b.rencana_pakai || '',
+          plannedEndTime: b.sampai_kapan || '',
+          departureTime: b.waktu_berangkat || b.created_at,
+          estimatedArrivalTime: b.estimasi_kembali || '',
+          startOdometer: b.odometer_awal || 0,
+          startFuel: b.bbm_awal || '1/2',
+          startCondition: b.kondisi_awal || 'BAIK',
+          destination: b.tujuan || b.destination || b.keperluan_tujuan || '',
+          status: isActive ? 'active' : (approval as any),
+          requestDate: b.created_at,
+          odometerPhotoUrl: b.foto_odometer || ''
+        };
+      });
+
+      return { cars: mappedCars, logs: mappedLogs };
+    } catch (e) {
+      console.error("Supabase Fetch Error:", e);
+      throw e;
     }
-    return null;
   };
 
   const syncData = useCallback(async (isSilent = false) => {
     if (!isSilent) setIsSyncing(true);
     try {
-      const myData = await fetchCloudData(isSilent ? 1 : 3);
+      const myData = await fetchCloudData();
       if (myData) {
-        if (myData.logs) {
-          setLogs(myData.logs);
-          localStorage.setItem(`logs_${networkId}`, JSON.stringify(myData.logs));
-        }
-        if (myData.cars) {
-          setCars(myData.cars);
-          localStorage.setItem(`cars_${networkId}`, JSON.stringify(myData.cars));
-        }
+        setLogs(myData.logs);
+        localStorage.setItem(`logs_${networkId}`, JSON.stringify(myData.logs));
+        setCars(myData.cars);
+        localStorage.setItem(`cars_${networkId}`, JSON.stringify(myData.cars));
       }
       setNetworkError(false);
       setLastSync(new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
@@ -98,65 +131,90 @@ export default function App() {
     }
   }, [networkId]);
 
-  const pushDataToCloud = async (updatedCars: Car[], updatedLogs: UsageLog[]) => {
-    try {
-      const response = await fetch(`https://api.npoint.io/${SHARED_STORAGE_ID}`, { cache: 'no-store' });
-      const allData = response.ok ? await response.json() : {};
-      
-      allData[networkId] = {
-        cars: updatedCars,
-        logs: updatedLogs,
-        lastUpdate: new Date().toISOString()
-      };
+  const updateUnitStatus = async (unitId: string, status: string) => {
+    const { error } = await supabase.from('fleet_units').update({ status }).eq('id', unitId);
+    if (error) {
+      console.error(`Gagal update status unit ${unitId} ke ${status}:`, error);
+      throw error;
+    }
+  };
 
-      const postRes = await fetch(`https://api.npoint.io/${SHARED_STORAGE_ID}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(allData)
-      });
-      
-      if (!postRes.ok) throw new Error("POST Failed");
-      
-      // Simpan juga di lokal sebagai cadangan
-      localStorage.setItem(`cars_${networkId}`, JSON.stringify(updatedCars));
-      localStorage.setItem(`logs_${networkId}`, JSON.stringify(updatedLogs));
-      
-      return true;
-    } catch (e) {
-      console.error("Cloud Error:", e);
-      throw e;
+  const updateBookingStatus = async (bookingId: string, status: string) => {
+    const { error } = await supabase.from('fleet_bookings').update({ status_approval: status }).eq('id', bookingId);
+    if (error) {
+      console.error(`Gagal update status booking ${bookingId} ke ${status}:`, error);
+      throw error;
     }
   };
 
   useEffect(() => {
     syncData();
-    const interval = setInterval(() => syncData(true), 15000); // Cek tiap 15 detik
+    const interval = setInterval(() => syncData(true), 5000); // Cek tiap 5 detik (Auto-refresh lebih cepat)
     return () => clearInterval(interval);
   }, [syncData]);
 
   const handleAddLog = async (log: UsageLog) => {
     setIsSyncing(true);
+    console.log("Memulai pengiriman data ke fleet_bookings...", log);
     try {
-      // VALIDASI DOUBLE BOOKING
-      const latest = await fetchCloudData(2);
-      const currentCars: Car[] = latest?.cars || cars;
-      const target = currentCars.find(c => c.id === log.carId);
+      let photoUrl = '';
 
-      if (!target || target.status !== 'available') {
-        alert("⚠️ MAAF! Unit baru saja diambil oleh rekan lain. Pilih unit lain ya.");
-        await syncData();
-        return;
+      // 1. Upload Foto ke Storage jika ada
+      if (log.odometerPhotoFile) {
+        const file = log.odometerPhotoFile;
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Math.random()}.${fileExt}`;
+        const filePath = `odometer/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('fleet-photos')
+          .upload(filePath, file);
+
+        if (uploadError) {
+          console.error("Gagal upload foto:", uploadError);
+          throw new Error("Gagal mengunggah foto odometer.");
+        }
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('fleet-photos')
+          .getPublicUrl(filePath);
+        
+        photoUrl = publicUrl;
+        console.log("Foto berhasil diupload:", photoUrl);
       }
 
-      const updatedCars = currentCars.map(c => c.id === log.carId ? { ...c, status: 'requested' as const } : c);
-      const updatedLogs = [log, ...(latest?.logs || logs)];
+      // 2. Insert ke fleet_bookings dengan kolom asli database
+      const payload: any = { 
+        nama_user: log.driverName, 
+        departemen: log.department, 
+        odometer_awal: log.startOdometer, 
+        keperluan_tujuan: log.purpose, 
+        unit_id: parseInt(log.unitId), 
+        rencana_pakai: log.plannedStartTime,
+        sampai_kapan: log.plannedEndTime,
+        status_approval: 'pending',
+        foto_odometer: photoUrl
+      };
 
-      await pushDataToCloud(updatedCars, updatedLogs);
-      setCars(updatedCars);
-      setLogs(updatedLogs);
+      console.log("Payload yang dikirim ke Supabase:", payload);
+
+      const { error: bookErr } = await supabase
+        .from('fleet_bookings')
+        .insert([payload]);
+
+      if (bookErr) {
+        console.error("GAGAL INSERT fleet_bookings:", bookErr);
+        throw bookErr;
+      }
+
+      // 3. Update status unit ke requested
+      await updateUnitStatus(log.unitId, 'requested');
+
+      await syncData();
       alert("✅ Permohonan Terkirim! Mohon tunggu approval HRGA.");
-    } catch (e) {
-      alert("⚠️ KONEKSI SIBUK: Data gagal terkirim. Pastikan sinyal internet stabil dan coba klik 'Kirim' lagi.");
+    } catch (e: any) {
+      console.error("Error Total handleAddLog:", e);
+      alert(`⚠️ GAGAL MENGIRIM: ${e.message || "Koneksi sibuk"}`);
     } finally {
       setIsSyncing(false);
     }
@@ -164,43 +222,243 @@ export default function App() {
 
   const handleApprove = async (id: string) => {
     setIsSyncing(true);
-    const log = logs.find(l => l.id === id);
-    if (!log) return;
-    const updatedLogs = logs.map(l => l.id === id ? { ...l, status: 'active' as const } : l);
-    const updatedCars = cars.map(c => c.id === log.carId ? { ...c, status: 'on-duty' as const } : c);
-    setCars(updatedCars); setLogs(updatedLogs);
-    await pushDataToCloud(updatedCars, updatedLogs);
-    setIsSyncing(false);
+    try {
+      const log = logs.find(l => l.id === id);
+      if (!log) return;
+
+      await updateBookingStatus(id, 'active');
+      await updateUnitStatus(log.unitId, 'on-duty');
+
+      await syncData();
+    } catch (e) {
+      console.error("Error Total handleApprove:", e);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleReject = async (id: string) => {
     setIsSyncing(true);
-    const log = logs.find(l => l.id === id);
-    if (!log) return;
-    const updatedLogs = logs.map(l => l.id === id ? { ...l, status: 'rejected' as const } : l);
-    const updatedCars = cars.map(c => c.id === log.carId ? { ...c, status: 'available' as const } : c);
-    setCars(updatedCars); setLogs(updatedLogs);
-    await pushDataToCloud(updatedCars, updatedLogs);
-    setIsSyncing(false);
+    try {
+      const log = logs.find(l => l.id === id);
+      if (!log) return;
+
+      await updateBookingStatus(id, 'rejected');
+      await updateUnitStatus(log.unitId, 'available');
+
+      await syncData();
+    } catch (e) {
+      console.error("Error Total handleReject:", e);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleComplete = async (id: string, endData: any) => {
     setIsSyncing(true);
-    const log = logs.find(l => l.id === id);
-    if (!log) return;
-    const updatedLogs = logs.map(l => l.id === id ? { ...l, status: 'completed' as const, ...endData } : l);
-    const updatedCars = cars.map(c => c.id === log.carId ? { ...c, status: 'available' as const } : c);
-    setCars(updatedCars); setLogs(updatedLogs);
-    await pushDataToCloud(updatedCars, updatedLogs);
-    setIsSyncing(false);
+    try {
+      const log = logs.find(l => l.id === id);
+      if (!log) return;
+
+      let parkingUrl = '';
+      let speedometerUrl = '';
+
+      // 1. Upload Foto Parkir jika ada
+      if (endData.parkingPhoto) {
+        try {
+          const file = dataURLtoFile(endData.parkingPhoto, `parking_${id}.jpg`);
+          const filePath = `returns/parking_${Date.now()}_${id}.jpg`;
+          const { error: uploadError } = await supabase.storage.from('fleet-photos').upload(filePath, file);
+          if (!uploadError) {
+            const { data: { publicUrl } } = supabase.storage.from('fleet-photos').getPublicUrl(filePath);
+            parkingUrl = publicUrl;
+          }
+        } catch (e) { console.error("Upload parking failed", e); }
+      }
+
+      // 2. Upload Foto Speedometer jika ada
+      if (endData.odoPhoto) {
+        try {
+          const file = dataURLtoFile(endData.odoPhoto, `speedo_${id}.jpg`);
+          const filePath = `returns/speedo_${Date.now()}_${id}.jpg`;
+          const { error: uploadError } = await supabase.storage.from('fleet-photos').upload(filePath, file);
+          if (!uploadError) {
+            const { data: { publicUrl } } = supabase.storage.from('fleet-photos').getPublicUrl(filePath);
+            speedometerUrl = publicUrl;
+          }
+        } catch (e) { console.error("Upload speedo failed", e); }
+      }
+
+      // 3. Update status booking
+      await updateBookingStatus(id, 'completed');
+
+      // 4. Insert ke fleet_returns dengan percobaan bertahap (resilient insert)
+      const fullPayload: any = {
+        booking_id: id,
+        odometer_akhir: endData.endOdometer,
+        bbm_akhir: endData.endFuel,
+        kondisi_akhir: endData.endCondition,
+        waktu_kembali: endData.arrivalTime,
+        catatan: `${endData.notes || ''} (BBM: ${endData.endFuel}, Kondisi: ${endData.endCondition})`,
+        foto_parkir: parkingUrl,
+        foto_speedometer: speedometerUrl
+      };
+
+      let { error: returnErr } = await supabase.from('fleet_returns').insert([fullPayload]);
+      
+      // Jika gagal karena kolom tidak ditemukan, coba lagi dengan payload minimal
+      if (returnErr && returnErr.code === 'PGRST204') {
+        console.warn("Retrying insert with minimal payload due to missing columns:", returnErr.message);
+        const minimalPayload = {
+          booking_id: id,
+          odometer_akhir: endData.endOdometer,
+          waktu_kembali: endData.arrivalTime,
+          catatan: `${endData.notes || ''} [BBM: ${endData.endFuel}, Kondisi: ${endData.endCondition}, Foto: ${parkingUrl}, ${speedometerUrl}]`
+        };
+        const { error: retryErr } = await supabase.from('fleet_returns').insert([minimalPayload]);
+        returnErr = retryErr;
+      }
+      
+      if (returnErr) {
+        console.error("Error insert fleet_returns:", returnErr);
+        throw returnErr;
+      }
+
+      // 5. Update status unit
+      await updateUnitStatus(log.unitId, 'available');
+
+      await syncData();
+      alert("✅ Pengembalian unit berhasil diproses.");
+    } catch (e: any) {
+      console.error("Error Total handleComplete:", e);
+      alert("Gagal memproses pengembalian unit: " + (e.message || "Error Database"));
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
-  const handleToggleMaintenance = async (carId: string) => {
+  // Helper function to convert dataURL to File
+  function dataURLtoFile(dataurl: string, filename: string) {
+    const arr = dataurl.split(',');
+    const mimeMatch = arr[0].match(/:(.*?);/);
+    if (!mimeMatch) return new File([], filename);
+    const mime = mimeMatch[1];
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new File([u8arr], filename, { type: mime });
+  }
+
+  const handleDeleteLog = async (id: string, unitId: string) => {
     setIsSyncing(true);
-    const updatedCars = cars.map(c => c.id === carId ? { ...c, status: (c.status === 'maintenance' ? 'available' : 'maintenance') as any } : c);
-    setCars(updatedCars);
-    await pushDataToCloud(updatedCars, logs);
-    setIsSyncing(false);
+    try {
+      const { error: deleteErr } = await supabase
+        .from('fleet_bookings')
+        .delete()
+        .eq('id', id);
+
+      if (deleteErr) throw deleteErr;
+
+      // Reset unit status ke available karena log-nya dihapus (asumsi salah input/pembatalan manual)
+      await updateUnitStatus(unitId, 'available');
+
+      await syncData();
+    } catch (e: any) {
+      console.error("Error Delete Log:", e);
+      alert(`❌ Gagal menghapus log: ${e.message}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleToggleMaintenance = async (unitId: string) => {
+    setIsSyncing(true);
+    try {
+      const car = cars.find(c => c.id === unitId);
+      if (!car) return;
+      const newStatus = car.status === 'maintenance' ? 'available' : 'maintenance';
+      await updateUnitStatus(unitId, newStatus);
+      await syncData();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleTestSupabase = async () => {
+    setIsSyncing(true);
+    try {
+      const { error } = await supabase
+        .from('fleet_bookings')
+        .insert([
+          { 
+            nama_user: 'Tes Nisa', 
+            departemen: 'HRGA', 
+            odometer_awal: 100, 
+            keperluan_tujuan: 'Tes Koneksi', 
+            unit_id: '1',
+            rencana_pakai: new Date().toISOString(),
+            sampai_kapan: new Date().toISOString(),
+            status_approval: 'pending'
+          }
+        ]);
+
+      if (error) throw error;
+      alert("✅ Berhasil! Data tes masuk ke tabel 'fleet_bookings' dengan kolom baru.");
+    } catch (e: any) {
+      console.error("Test Insert Error:", e);
+      alert(`❌ Gagal: ${e.message}. Pastikan tabel 'fleet_bookings' sudah ada di Supabase dengan kolom yang sesuai.`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleEmergencyReset = async () => {
+    // Note: Confirmation is now handled by the custom modal in DashboardPage.tsx
+    setIsSyncing(true);
+    console.log("Memulai full reset armada dan permohonan...");
+    try {
+      // 1. Reset SEMUA unit yang bukan maintenance menjadi 'available'
+      // JANGAN masukkan 'on-duty' ke dalam exclusion list!
+      const { error: unitsErr } = await supabase
+        .from('fleet_units')
+        .update({ status: 'available' })
+        .not('status', 'in', '(maintenance,Maintenance,MAINTENANCE,SERVIS,servis,Servis)');
+
+      if (unitsErr) {
+        console.error("Gagal update fleet_units:", unitsErr);
+        throw unitsErr;
+      }
+
+      // 2. Tutup SEMUA permohonan (bookings) yang sedang berjalan/pending
+      // Kita reset status_approval menjadi 'completed' untuk log yang menggantung
+      const { error: bookingsErr } = await supabase
+        .from('fleet_bookings')
+        .update({ status_approval: 'completed' })
+        .not('status_approval', 'in', '(completed,rejected,COMPLETED,REJECTED,Selesai,Ditolak)');
+
+      if (bookingsErr) {
+        console.error("Gagal update fleet_bookings:", bookingsErr);
+        throw bookingsErr;
+      }
+
+      console.log("Reset DB berhasil, membersihkan cache lokal...");
+      // Hapus cache lokal agar data benar-benar fresh
+      localStorage.removeItem(`logs_${networkId}`);
+      localStorage.removeItem(`cars_${networkId}`);
+      
+      await syncData();
+      try { alert("✅ RESET TOTAL BERHASIL: Semua armada kini Hijau (Tersedia)."); } catch(e) {}
+    } catch (e: any) {
+      console.error("Critical Reset Error:", e);
+      try { alert("❌ GAGAL RESET: " + (e.message || "Unknown error")); } catch(err) {}
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   return (
@@ -222,7 +480,7 @@ export default function App() {
           <div className={`md:hidden p-3 flex justify-between items-center text-[9px] font-black uppercase tracking-widest border-b sticky top-0 z-[60] shadow-sm ${networkError ? 'bg-amber-500 text-slate-950' : 'bg-slate-950 text-white'}`}>
              <div className="flex items-center gap-2">
                <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-fuchsia-400 animate-pulse' : (networkError ? 'bg-white' : 'bg-green-500')}`}></div>
-               KODE: {networkId}
+               FLEET MONITORING
              </div>
              <button onClick={() => syncData()} className="bg-white/10 px-2 py-1 rounded">REFRESH</button>
           </div>
@@ -232,11 +490,11 @@ export default function App() {
             <Route path="/return" element={<ReturnPage logs={logs} onComplete={handleComplete} onExtend={() => {}} />} />
             <Route 
               path="/dashboard" 
-              element={isAdmin ? <DashboardPage cars={cars} logs={logs} onComplete={handleComplete} onApprove={handleApprove} onReject={handleReject} onRefresh={() => syncData()} onToggleMaintenance={handleToggleMaintenance} /> : <AdminGuard onAuth={(pin) => { if(pin === '1234') { setIsAdmin(true); sessionStorage.setItem('admin_auth', 'true'); return true; } return false; }} />} 
+              element={isAdmin ? <DashboardPage cars={cars} logs={logs} onComplete={handleComplete} onApprove={handleApprove} onReject={handleReject} onRefresh={() => syncData()} onToggleMaintenance={handleToggleMaintenance} onTestSupabase={handleTestSupabase} onResetAll={handleEmergencyReset} lastSync={lastSync} /> : <AdminGuard onAuth={(pin) => { if(pin === '1234') { setIsAdmin(true); sessionStorage.setItem('admin_auth', 'true'); return true; } return false; }} />} 
             />
             <Route 
               path="/history" 
-              element={isAdmin ? <HistoryPage logs={logs} onImportLogs={async (imported) => { setLogs(imported); await pushDataToCloud(cars, imported); }} /> : <AdminGuard onAuth={() => false} />} 
+              element={isAdmin ? <HistoryPage logs={logs} onDelete={handleDeleteLog} /> : <AdminGuard onAuth={() => false} />} 
             />
           </Routes>
         </main>
@@ -260,7 +518,7 @@ function Sidebar({ isAdmin, isSyncing, lastSync, networkError, networkId, onLogo
 
   const shareLink = () => {
     const baseUrl = window.location.origin + window.location.pathname;
-    const finalUrl = `${baseUrl}?net=${networkId}#/`;
+    const finalUrl = `${baseUrl}#/`;
     navigator.clipboard.writeText(finalUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -293,13 +551,13 @@ function Sidebar({ isAdmin, isSyncing, lastSync, networkError, networkId, onLogo
       <div className="p-8 border-t border-slate-900 space-y-4">
         <div className={`px-5 py-4 rounded-2xl border transition-all ${networkError ? 'border-amber-500 bg-amber-500/10' : 'border-slate-800 bg-slate-900/50'}`}>
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[7px] font-black uppercase text-slate-500">DATABASE AKTIF:</span>
+            <span className="text-[7px] font-black uppercase text-slate-500">STATUS KONEKSI:</span>
             <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-fuchsia-500 animate-ping' : (networkError ? 'bg-amber-500' : 'bg-green-500')}`}></div>
           </div>
-          <p className="text-[11px] font-black uppercase text-fuchsia-500 tracking-[0.2em]">{networkId}</p>
+          <p className="text-[11px] font-black uppercase text-fuchsia-500 tracking-[0.2em]">{networkError ? 'OFFLINE' : 'TERKONEKSI'}</p>
           <div className="flex justify-between items-center mt-2 border-t border-slate-800 pt-2">
             <p className="text-[7px] font-bold text-slate-600 uppercase">UPDATE: {lastSync}</p>
-            <button onClick={onRefresh} className="text-[7px] font-black text-fuchsia-400 hover:text-white uppercase transition-colors">REFRESH KONEKSI</button>
+            <button onClick={onRefresh} className="text-[7px] font-black text-fuchsia-400 hover:text-white uppercase transition-colors">REFRESH</button>
           </div>
         </div>
         

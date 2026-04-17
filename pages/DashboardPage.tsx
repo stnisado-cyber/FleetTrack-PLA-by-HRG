@@ -5,22 +5,37 @@ import { Car, UsageLog, FuelLevel, VehicleCondition } from '../types';
 interface Props {
   cars: Car[];
   logs: UsageLog[];
-  onComplete: (id: string, endData: { endOdo: number, endFuel: FuelLevel, endCondition: VehicleCondition, arrivalTime: string }) => void;
+  onComplete: (id: string, endData: { 
+    endOdo: number, 
+    endFuel: FuelLevel, 
+    endCondition: VehicleCondition, 
+    arrivalTime: string,
+    notes?: string,
+    parkingPhoto?: string,
+    odoPhoto?: string
+  }) => void;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
   onRefresh: () => void;
-  onToggleMaintenance: (carId: string) => void;
+  onToggleMaintenance: (unitId: string) => void;
+  onTestSupabase: () => void;
+  onResetAll?: () => void;
+  lastSync?: string;
 }
 
-export default function DashboardPage({ cars, logs, onComplete, onApprove, onReject, onRefresh, onToggleMaintenance }: Props) {
+export default function DashboardPage({ cars, logs, onComplete, onApprove, onReject, onRefresh, onToggleMaintenance, onTestSupabase, onResetAll, lastSync }: Props) {
   const pendingLogs = logs.filter(l => l.status === 'pending');
-  const activeLogs = logs.filter(l => l.status === 'active');
+  const activeLogs = logs.filter(l => l.status === 'active' || l.status === 'on-duty');
   const [completeDialog, setCompleteDialog] = useState<string | null>(null);
+  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  
+  const [confirmReset, setConfirmReset] = useState(false);
   
   const [endData, setEndData] = useState({
     endOdo: '',
     endFuel: '1/2' as FuelLevel,
     endCondition: 'BAIK' as VehicleCondition,
+    notes: '',
     arrivalTime: new Date().toISOString().slice(0, 16)
   });
 
@@ -34,18 +49,31 @@ export default function DashboardPage({ cars, logs, onComplete, onApprove, onRej
 
   return (
     <div className="p-4 md:p-12 space-y-12 max-w-7xl mx-auto animate-in fade-in duration-700">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 border-b border-slate-200 pb-8">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 border-b border-slate-200 pb-8 relative z-50">
         <div>
           <div className="flex items-center gap-3 mb-2">
             <div className="w-8 h-1 bg-fuchsia-600"></div>
             <p className="text-[10px] font-black uppercase tracking-[0.3em] text-fuchsia-600">HRGA Control Center</p>
           </div>
           <h1 className="text-3xl font-black text-slate-950 uppercase tracking-tight">Monitoring & Approval</h1>
+          {lastSync && <p className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-widest">Update Terakhir: {lastSync} (Auto-refresh aktif)</p>}
         </div>
-        <button onClick={onRefresh} className="px-6 py-4 bg-slate-950 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-3 hover:bg-fuchsia-600 transition-all shadow-xl">
-           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
-           Refresh Data
-        </button>
+        <div className="flex gap-3 pointer-events-auto">
+          <button onClick={onTestSupabase} className="px-6 py-4 bg-white border-2 border-slate-950 text-slate-950 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-3 hover:bg-slate-50 transition-all cursor-pointer">
+             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+             Test DB Connection
+          </button>
+          <button onClick={onRefresh} className="px-6 py-4 bg-slate-950 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-3 hover:bg-fuchsia-600 transition-all shadow-xl cursor-pointer">
+             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
+             Refresh Data
+          </button>
+          {onResetAll && (
+            <button onClick={() => setConfirmReset(true)} className="px-6 py-4 bg-red-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-3 hover:bg-red-700 transition-all shadow-xl cursor-pointer">
+               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+               Reset All Armada
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
@@ -73,9 +101,32 @@ export default function DashboardPage({ cars, logs, onComplete, onApprove, onRej
                   <h3 className="font-black text-2xl text-slate-950 mb-1">{log.carName}</h3>
                   <p className="text-xs font-bold text-slate-500 uppercase mb-6">{log.driverName} • {log.department}</p>
                   
-                  <div className="bg-slate-50 p-4 rounded-2xl mb-6 border border-slate-100">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Tujuan</p>
-                    <p className="text-sm font-bold text-slate-800 line-clamp-2">"{log.destination}"</p>
+                  <div className="bg-slate-50 p-4 rounded-2xl mb-6 border border-slate-100 space-y-3">
+                    <div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Keperluan / Tujuan</p>
+                      <p className="text-sm font-bold text-slate-800 line-clamp-2">"{log.purpose}"</p>
+                    </div>
+                    <div className="pt-3 border-t border-slate-200 grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Rencana Pakai</p>
+                        <p className="text-[10px] font-black text-fuchsia-600">{new Date(log.plannedStartTime).toLocaleDateString('id-ID', {day:'numeric', month:'short'})} • {new Date(log.plannedStartTime).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}</p>
+                      </div>
+                      <div>
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Sampai</p>
+                        <p className="text-[10px] font-black text-fuchsia-600">{new Date(log.plannedEndTime).toLocaleDateString('id-ID', {day:'numeric', month:'short'})} • {new Date(log.plannedEndTime).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}</p>
+                      </div>
+                    </div>
+                    {log.odometerPhotoUrl && (
+                      <div className="pt-3 border-t border-slate-200">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2">Foto Odometer Awal</p>
+                        <button 
+                          onClick={() => setSelectedPhoto(log.odometerPhotoUrl!)}
+                          className="w-full h-24 rounded-xl overflow-hidden border-2 border-slate-100 hover:border-fuchsia-500 transition-all group"
+                        >
+                          <img src={log.odometerPhotoUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform" alt="Odometer" />
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex gap-3">
@@ -167,8 +218,14 @@ export default function DashboardPage({ cars, logs, onComplete, onApprove, onRej
               type="number" 
               value={endData.endOdo}
               onChange={e => setEndData({ ...endData, endOdo: e.target.value })}
-              className="w-full px-8 py-8 border-4 border-slate-50 rounded-[2rem] outline-none font-mono font-black text-4xl text-center mb-8"
-              placeholder="0000"
+              className="w-full px-6 py-6 border-4 border-slate-50 rounded-2xl outline-none font-mono font-black text-3xl text-center mb-4"
+              placeholder="KM Akhir"
+            />
+            <textarea 
+              value={endData.notes}
+              onChange={e => setEndData({ ...endData, notes: e.target.value })}
+              className="w-full px-6 py-4 border-2 border-slate-50 rounded-2xl outline-none font-bold text-xs mb-8 min-h-[80px] resize-none"
+              placeholder="Catatan Kondisi (Opsional)"
             />
             <div className="flex flex-col gap-4">
               <button onClick={() => {
@@ -178,6 +235,35 @@ export default function DashboardPage({ cars, logs, onComplete, onApprove, onRej
               <button onClick={() => setCompleteDialog(null)} className="py-2 text-slate-400 font-bold uppercase text-[10px]">Cancel</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {selectedPhoto && (
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-2xl z-[400] flex items-center justify-center p-6 md:p-12 animate-in fade-in duration-300">
+           <button onClick={() => setSelectedPhoto(null)} className="absolute top-8 right-8 p-4 bg-white/10 text-white rounded-full hover:bg-red-600 transition-all">
+             <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"><path d="M18 6 6 18M6 6l12 12"/></svg>
+           </button>
+           <div className="max-w-5xl w-full h-full flex flex-col items-center justify-center gap-8">
+              <div className="bg-white p-4 rounded-[3rem] shadow-2xl rotate-2 hover:rotate-0 transition-transform duration-500">
+                <img src={selectedPhoto} className="max-h-[70vh] w-auto rounded-[2rem] shadow-inner" alt="Parking documentation" />
+              </div>
+           </div>
+        </div>
+      )}
+
+      {confirmReset && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xl z-[500] flex items-center justify-center p-6 animate-in fade-in duration-300">
+           <div className="bg-white rounded-[3rem] p-10 w-full max-w-sm text-center shadow-2xl relative">
+              <div className="w-20 h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-8 animate-bounce">
+                <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+              </div>
+              <h3 className="text-2xl font-black text-slate-950 uppercase tracking-tight mb-4">Reset Semua?</h3>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-8 leading-relaxed">Semua armada akan kembali status 'Tersedia'. Tindakan ini tidak dapat dibatalkan.</p>
+              <div className="flex flex-col gap-3">
+                <button onClick={() => { onResetAll?.(); setConfirmReset(false); }} className="w-full py-5 bg-red-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl hover:bg-red-700 active:scale-95 transition-all">Ya, Reset Sekarang</button>
+                <button onClick={() => setConfirmReset(false)} className="w-full py-5 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] hover:bg-slate-200 transition-all">Batalkan</button>
+              </div>
+           </div>
         </div>
       )}
     </div>

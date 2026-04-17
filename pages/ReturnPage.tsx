@@ -5,34 +5,48 @@ import { Icons } from '../constants';
 
 interface Props {
   logs: UsageLog[];
-  onComplete: (id: string, endData: { endOdo: number, endFuel: FuelLevel, endCondition: VehicleCondition, arrivalTime: string, returnPhoto?: string }) => void;
+  onComplete: (id: string, endData: { 
+    endOdo: number, 
+    endFuel: FuelLevel, 
+    endCondition: VehicleCondition, 
+    arrivalTime: string, 
+    parkingPhoto?: string, 
+    odoPhoto?: string,
+    notes?: string 
+  }) => void;
   onExtend: (id: string, newTime: string, reason: string) => void;
 }
 
 export default function ReturnPage({ logs, onComplete, onExtend }: Props) {
-  const activeLogs = logs.filter(l => l.status === 'active');
+  const activeLogs = logs.filter(l => l.status === 'active' || l.status === 'on-duty');
   const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState<'returned' | 'extended' | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [parkingPhoto, setParkingPhoto] = useState<string | null>(null);
+  const [odoPhoto, setOdoPhoto] = useState<string | null>(null);
   const [odoError, setOdoError] = useState<string | null>(null);
   
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const parkingInputRef = useRef<HTMLInputElement>(null);
+  const odoInputRef = useRef<HTMLInputElement>(null);
 
   const [endData, setEndData] = useState({
     endOdo: '',
     endFuel: '1/2' as FuelLevel,
     endCondition: 'BAIK' as VehicleCondition,
+    notes: '',
     arrivalTime: new Date().toISOString().slice(0, 16)
   });
 
   const selectedLog = logs.find(l => l.id === selectedLogId);
   const isEV = selectedLog?.carName.toUpperCase().includes('BYD');
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'parking' | 'odo') => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => setPhotoPreview(reader.result as string);
+      reader.onloadend = () => {
+        if (type === 'parking') setParkingPhoto(reader.result as string);
+        else setOdoPhoto(reader.result as string);
+      };
       reader.readAsDataURL(file);
     }
   };
@@ -60,16 +74,20 @@ export default function ReturnPage({ logs, onComplete, onExtend }: Props) {
       endFuel: endData.endFuel,
       endCondition: endData.endCondition,
       arrivalTime: new Date(endData.arrivalTime).toISOString(),
-      returnPhoto: photoPreview || undefined
+      parkingPhoto: parkingPhoto || undefined,
+      odoPhoto: odoPhoto || undefined,
+      notes: endData.notes
     });
 
     setSubmitted('returned');
     setSelectedLogId(null);
-    setPhotoPreview(null);
+    setParkingPhoto(null);
+    setOdoPhoto(null);
     setEndData({
       endOdo: '',
       endFuel: '1/2',
       endCondition: 'BAIK',
+      notes: '',
       arrivalTime: new Date().toISOString().slice(0, 16)
     });
 
@@ -138,7 +156,7 @@ export default function ReturnPage({ logs, onComplete, onExtend }: Props) {
       ) : (
         <form onSubmit={handleSubmit} className="bg-white rounded-[3rem] border border-slate-100 shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-500">
           <div className="bg-slate-950 px-10 py-12 text-white flex items-center gap-8 relative overflow-hidden">
-             <button type="button" onClick={() => {setSelectedLogId(null); setPhotoPreview(null); setOdoError(null);}} className="p-4 bg-slate-800 rounded-2xl hover:bg-fuchsia-600 transition-all relative z-10">
+             <button type="button" onClick={() => {setSelectedLogId(null); setParkingPhoto(null); setOdoPhoto(null); setOdoError(null);}} className="p-4 bg-slate-800 rounded-2xl hover:bg-fuchsia-600 transition-all relative z-10">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
              </button>
              <div className="relative z-10">
@@ -148,25 +166,49 @@ export default function ReturnPage({ logs, onComplete, onExtend }: Props) {
           </div>
 
           <div className="p-10 md:p-14 space-y-12">
-            <div className="space-y-4">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block text-center">Foto Parkir Unit & Dashboard</label>
-              <div className="relative">
-                {photoPreview ? (
-                  <div className="relative rounded-[2.5rem] overflow-hidden border-4 border-fuchsia-500 shadow-2xl aspect-video">
-                    <img src={photoPreview} className="w-full h-full object-cover" alt="Parking documentation" />
-                    <button type="button" onClick={() => setPhotoPreview(null)} className="absolute top-4 right-4 p-3 bg-red-600 text-white rounded-full shadow-lg hover:scale-110 transition-transform">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"><path d="M18 6 6 18M6 6l12 12"/></svg>
-                    </button>
-                  </div>
-                ) : (
-                  <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full h-48 border-4 border-dashed border-slate-100 rounded-[2.5rem] flex flex-col items-center justify-center gap-4 text-slate-300 hover:text-fuchsia-500 hover:border-fuchsia-100 hover:bg-fuchsia-50/30 transition-all group">
-                    <div className="p-5 bg-slate-50 rounded-full group-hover:bg-fuchsia-100 transition-colors">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-4">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block text-center">Foto Parkir Unit</label>
+                <div className="relative">
+                  {parkingPhoto ? (
+                    <div className="relative rounded-[2rem] overflow-hidden border-4 border-fuchsia-500 shadow-xl aspect-video">
+                      <img src={parkingPhoto} className="w-full h-full object-cover" alt="Parking documentation" />
+                      <button type="button" onClick={() => setParkingPhoto(null)} className="absolute top-2 right-2 p-2 bg-red-600 text-white rounded-full shadow-lg hover:scale-110 transition-transform">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                      </button>
                     </div>
-                    <span className="text-[10px] font-black uppercase tracking-[0.2em]">Ambil Foto Dokumentasi</span>
-                  </button>
-                )}
-                <input type="file" ref={fileInputRef} onChange={handlePhotoUpload} accept="image/*" capture="environment" className="hidden" />
+                  ) : (
+                    <button type="button" onClick={() => parkingInputRef.current?.click()} className="w-full h-40 border-4 border-dashed border-slate-100 rounded-[2rem] flex flex-col items-center justify-center gap-3 text-slate-300 hover:text-fuchsia-500 hover:border-fuchsia-100 hover:bg-fuchsia-50/30 transition-all group">
+                      <div className="p-4 bg-slate-50 rounded-full group-hover:bg-fuchsia-100 transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+                      </div>
+                      <span className="text-[9px] font-black uppercase tracking-[0.2em]">Foto Parkir</span>
+                    </button>
+                  )}
+                  <input type="file" ref={parkingInputRef} onChange={(e) => handlePhotoUpload(e, 'parking')} accept="image/*" capture="environment" className="hidden" />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block text-center">Speedometer Pengembalian</label>
+                <div className="relative">
+                  {odoPhoto ? (
+                    <div className="relative rounded-[2rem] overflow-hidden border-4 border-fuchsia-500 shadow-xl aspect-video">
+                      <img src={odoPhoto} className="w-full h-full object-cover" alt="Odometer documentation" />
+                      <button type="button" onClick={() => setOdoPhoto(null)} className="absolute top-2 right-2 p-2 bg-red-600 text-white rounded-full shadow-lg hover:scale-110 transition-transform">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                      </button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => odoInputRef.current?.click()} className="w-full h-40 border-4 border-dashed border-slate-100 rounded-[2rem] flex flex-col items-center justify-center gap-3 text-slate-300 hover:text-fuchsia-500 hover:border-fuchsia-100 hover:bg-fuchsia-50/30 transition-all group">
+                      <div className="p-4 bg-slate-50 rounded-full group-hover:bg-fuchsia-100 transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+                      </div>
+                      <span className="text-[9px] font-black uppercase tracking-[0.2em]">Foto Speedometer</span>
+                    </button>
+                  )}
+                  <input type="file" ref={odoInputRef} onChange={(e) => handlePhotoUpload(e, 'odo')} accept="image/*" capture="environment" className="hidden" />
+                </div>
               </div>
             </div>
 
@@ -199,9 +241,18 @@ export default function ReturnPage({ logs, onComplete, onExtend }: Props) {
               </div>
               <div className="space-y-6">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Kondisi Fisik Unit</label>
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => setEndData({...endData, endCondition: 'BAIK'})} className={`flex-1 py-4 rounded-xl font-black text-[10px] border-2 transition-all ${endData.endCondition === 'BAIK' ? 'bg-green-600 text-white border-green-700 shadow-lg' : 'bg-white text-slate-400 border-slate-100 hover:border-slate-300'}`}>NORMAL</button>
-                  <button type="button" onClick={() => setEndData({...endData, endCondition: 'PERLU PENGECEKAN'})} className={`flex-1 py-4 rounded-xl font-black text-[10px] border-2 transition-all ${endData.endCondition === 'PERLU PENGECEKAN' ? 'bg-amber-500 text-white border-amber-600 shadow-lg' : 'bg-white text-slate-400 border-slate-100 hover:border-slate-300'}`}>ADA KELUHAN</button>
+                <div className="flex gap-2 mb-4">
+                  <button type="button" onClick={() => setEndData({...endData, endCondition: 'BAIK'})} className={`flex-1 py-4 rounded-xl font-black text-[10px] border-2 transition-all ${endData.endCondition === 'BAIK' ? 'bg-green-600 text-white border-green-700 shadow-lg' : 'bg-white text-slate-400 border-slate-100 hover:border-slate-300'}`}>NORMAL / BAIK</button>
+                  <button type="button" onClick={() => setEndData({...endData, endCondition: 'PERLU PENGECEKAN'})} className={`flex-1 py-4 rounded-xl font-black text-[10px] border-2 transition-all ${endData.endCondition === 'PERLU PENGECEKAN' ? 'bg-amber-500 text-white border-amber-600 shadow-lg' : 'bg-white text-slate-400 border-slate-100 hover:border-slate-300'}`}>ADA CATATAN</button>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Catatan Tambahan</label>
+                  <textarea 
+                    value={endData.notes}
+                    onChange={e => setEndData({...endData, notes: e.target.value})}
+                    placeholder="Contoh: Unit perlu dicuci, ada baret halus di pintu kiri, dll..."
+                    className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-50 rounded-2xl outline-none focus:border-fuchsia-500 font-bold text-xs min-h-[100px] resize-none"
+                  />
                 </div>
               </div>
             </div>
